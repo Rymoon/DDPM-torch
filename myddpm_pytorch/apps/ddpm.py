@@ -14,10 +14,11 @@ Concepts:
 import math
 import os
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pytorch_lightning as pl
+from pytorch_lightning.utilities.types import STEP_OUTPUT
 import skimage
 import torch
 from matplotlib import pyplot as plt
@@ -167,6 +168,91 @@ def sample(n_samples, eps_model , image_channels, image_size, n_steps, device, a
 
 from pytorch_lightning import LightningModule
 
+class EMA(pl.Callback):
+    def __init__(self,decay=0.999,optimizer_idx=0,*,apply_by="epoch",collect_by="epoch"):
+        """
+        (apply_by,collect_y):
+        - ("epoch","epoch")
+        - ("epoch","batch")
+
+        Mantain a separete model, "ema", as average of original one; Never affect original optimization process; But used for compute metrics and predict or stop criterion;
+        """
+        self.decay = decay
+        self.optimizer_idx = optimizer_idx
+        assert (apply_by,collect_by) in [("epoch","epoch"),("epoch","batch")]
+        self.apply_by = apply_by
+        self.collect_by = collect_by
+        self.shadow_params = {}
+        self.backup_params = {}
+    
+    def ema_collect(self):
+        for group in self.optimizer.param_groups:
+            for name, param in group['params']:
+                if param.requires_grad:
+                    p = param.data
+                    if id(param) in self.shadow_params:
+                        sp = self.shadow_params[id(param)]
+                        self.shadow_params[id(param)] -= (1.0 - self.decay) * (sp - p )
+                    else:
+                        self.shadow_params[id(param)]= p
+    def ema_apply(self):
+        for group in self.optimizer.param_groups:
+            for name, param in group['params']:
+                if param.requires_grad:
+                    if id(param) in self.shadow_params:
+                        self.backup_param[id(param)] = param.data
+                        param.data = self.shadow_params[id(param)]
+    def ema_restore(self):
+        for group in self.optimizer.param_groups:
+            for name, param in group['params']:
+                if param.requires_grad:
+                    if id(param) in self.shadow_params:
+                        if id(param) in self.backup_params:
+                            param.data = self.backup_params[id(param)]
+
+    def on_train_batch_end(self, trainer: pl.Trainer, pl_module: LightningModule, outputs: STEP_OUTPUT, batch: Any, batch_idx: int) -> None:
+        """(after backward and update of batch)
+        collect
+        """
+        
+        if self.collect_by == "batch":
+            self.ema_collect()
+
+        return super().on_train_batch_end(trainer, pl_module, outputs, batch, batch_idx)
+ 
+    def on_train_epoch_start(self, trainer: pl.Trainer, pl_module: LightningModule) -> None:
+        """restore
+        """
+        
+        if self.apply_by in ("epoch",):
+            self.ema_restore()
+        
+                        
+        return super().on_train_epoch_start(trainer, pl_module)
+    
+
+    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: LightningModule) -> None:
+        """
+        collect, backup-and-apply
+        """
+        
+        if self.collect_by == "epoch":
+            self.ema_collect()
+        
+        if self.apply_by == "epoch":
+            self.ema_apply()
+                        
+        return super().on_train_epoch_end(trainer, pl_module)
+    def state_dict(self) -> Dict[str, Any]:
+        return {
+            "ema_shadow_params":self.shadow_params,
+            "ema_backup_params":self.backup_params,
+        }
+    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+        self.shadow_params = state_dict["ema_shadow_params"]
+        self.backup_params = state_dict["ema_backup_params"]
+        return super().load_state_dict(state_dict)
+    
 
 class Model(LightningModule):
     """From /annotated_deep_learning_paper_implementations/labml_nn/diffusion/ddpm/experiment.py:: Config class
@@ -181,6 +267,7 @@ class Model(LightningModule):
                  is_attn=(False,False,True,True),
                  n_blocks=2,
                  learning_rate=2e-5,
+                 mseloss_reduction="mean",
                  extra_info:dict={}):
         
         """
@@ -192,6 +279,7 @@ class Model(LightningModule):
         self.image_channels = image_channels
         self.image_size = image_size
         self.n_steps = n_steps
+        self.mseloss_reduction = mseloss_reduction
     
 
         from myddpm_pytorch.apps.ddpm_m import DenoiseDiffusion, UNet
@@ -222,9 +310,11 @@ class Model(LightningModule):
         """
         Return [optimizers],[schedulers]
         """
+        # optimizer = torch.optim.Adam(self.eps_model.parameters(), lr=self.learning_rate)
+        # return {"optimizer": optimizer, "lr_scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,verbose=True,min_lr=2e-6,factor=0.7,patience=5), "monitor": "train_loss"}
+        # 
         optimizer = torch.optim.Adam(self.eps_model.parameters(), lr=self.learning_rate)
-        return {"optimizer": optimizer, "lr_scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,verbose=True,min_lr=2e-5,factor=0.7), "monitor": "train_loss"}
-        
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer)
 
     
     def sample(self, n_samples):
@@ -252,7 +342,7 @@ class Model(LightningModule):
         """
         Return training_loss
         """
-        loss = self.diffusion.loss(batch)
+        loss = self.diffusion.loss(batch,reduction=self.mseloss_reduction)
         self.log('train_loss', loss)
         return loss
     
@@ -336,7 +426,7 @@ def RUN_sancheck():
     trainer.fit(model,datamodule=dm1)
     return locals()
 
-def RUN_2():
+def RUN_1():
     DEBUG = False
     import pytorch_lightning as pl
     from pytorch_lightning.callbacks import ModelCheckpoint
@@ -350,8 +440,9 @@ def RUN_2():
     batch_size = 16
     image_size = 128
     T = 1000
-    max_epochs = 100
-    learning_rate = 1e-3
+    max_epochs = 20*36
+    learning_rate = 1e-4
+    mseloss_reduction = "sum"
 
     dm = ImageDataModule([
         Path(pkg_root,"../Datasets/CelebAHQ/data256x256").as_posix(),
@@ -371,7 +462,7 @@ def RUN_2():
     Path(log_dir,"sample").mkdir(parents=True,exist_ok=True)
     
     
-    model = Model(T,torch.device(f"cuda:{gpuid}"),learning_rate=learning_rate)
+    model = Model(T,torch.device(f"cuda:{gpuid}"),learning_rate=learning_rate,mseloss_reduction=mseloss_reduction)
     trainer.fit(model,datamodule=dm)
     return locals()
 
@@ -386,4 +477,4 @@ if __name__ == '__main__':
     - 
     
     """
-    RUN_sancheck()
+    RUN_1()

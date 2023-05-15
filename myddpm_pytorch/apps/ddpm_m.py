@@ -523,7 +523,7 @@ class DenoiseDiffusion:
         # $\sigma^2 = \beta$
         self.sigma2 = self.beta
 
-    def loss(self, x0: torch.Tensor, noise: Optional[torch.Tensor] = None):
+    def loss(self, x0: torch.Tensor, noise: Optional[torch.Tensor] = None,*,reduction="mean"):
         """
         #### Simplified Loss
 
@@ -547,7 +547,7 @@ class DenoiseDiffusion:
 
         ## MSE loss
         # return torch.nn.functional.mse_loss(noise, eps_theta)
-        return torch.nn.functional.mse_loss(noise, eps_theta, reduction="mean")
+        return torch.nn.functional.mse_loss(noise, eps_theta, reduction=reduction)
     
     def q_sample(self, x0: torch.Tensor, t: torch.Tensor, eps: Optional[torch.Tensor] = None):
         """
