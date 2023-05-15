@@ -1,0 +1,36 @@
+# Based on env:pytorch112
+# conda install -f pytorch112.yml
+# conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.6 -c pytorch -c conda-forge
+# Notice that if cpu-version pytorch was installed, it means GPU-pytorch for your version combination not exists on the channels. Try to relax the version limitation, for example, use  `cudatoolkit`` instead of `cudatoolkit=11.3`. Related packages: python, pytorch,torchvision, torchaudio, cudatoolkit
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+- python=3.10
+- pytorch=1.12
+- torchvision
+- cudatoolkit
+- pytorch-lightning=1.7
+- torchmetrics=0.9.3
+- matplotlib
+- imagesize # fetch image size without loading the full image.
+- imgaug=0.4.0 # replace this with kornia
+- albumentations=1.0.3 # replace this with kornia
+- scikit-image
+- kornia
+- scikit-learn
+- pyside2
+- h5py
+- rich[jupyter] # pretty terminal
+- tqdm
+- jsonargparse[signatures]
+- seaborn
+- tabulate
+- ipykernel
+- ipympl
+- ipython
+- notebook # export notebook as HTML
+- nbconvert # export notebook as HTML
+- levenshtein # string similarity; for exception pharsing.
+- regex # Support more than builtin re module.
+- yaml
