@@ -1,5 +1,8 @@
 Results
 Datasets
+
+# See docstring of rennet.py
+rennet.json 
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
