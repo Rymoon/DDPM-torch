@@ -167,7 +167,6 @@ def sample(n_samples, eps_model , image_channels, image_size, n_steps, device, a
         return x
 
 from pytorch_lightning import LightningModule
-
 class EMA(pl.Callback):
     def __init__(self,decay=0.999,optimizer_idx=0,*,apply_by="epoch",collect_by="epoch"):
         """
@@ -309,12 +308,22 @@ class Model(LightningModule):
     def configure_optimizers(self):
         """
         Return [optimizers],[schedulers]
+        Or {}
         """
         # optimizer = torch.optim.Adam(self.eps_model.parameters(), lr=self.learning_rate)
         # return {"optimizer": optimizer, "lr_scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,verbose=True,min_lr=2e-6,factor=0.7,patience=5), "monitor": "train_loss"}
         # 
         optimizer = torch.optim.Adam(self.eps_model.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,T_0=10,T_mult=1)
+        return {
+            "optimizer":optimizer,
+            "lr_scheduler":{
+                "scheduler":scheduler,
+                "interval":"epoch",
+                "frequency":2,
+            }
+        }
+
 
     
     def sample(self, n_samples):
@@ -441,8 +450,8 @@ def RUN_1():
     image_size = 128
     T = 1000
     max_epochs = 20*36
-    learning_rate = 1e-4
-    mseloss_reduction = "sum"
+    learning_rate = 6e-5
+    mseloss_reduction = "mean"
 
     dm = ImageDataModule([
         Path(pkg_root,"../Datasets/CelebAHQ/data256x256").as_posix(),
