@@ -1,6 +1,6 @@
 # DDPM-torch
 
-
+A release version of original DDPM in torch. Use for black-box training. Fully documents and demos required.
 
 **Install dependecies**
 See reauirements.yml;
